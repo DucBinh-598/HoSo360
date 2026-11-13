@@ -1,0 +1,86 @@
+generator client { provider = "prisma-client-js" }
+datasource db { provider = "mysql" url = env("DATABASE_URL") }
+enum Role { ADMIN MANAGER STAFF VIEWER }
+enum DossierStatus { DRAFT PENDING APPROVED REJECTED ARCHIVED }
+model Company {
+ id Int @id @default(autoincrement())
+ name String
+ slug String @unique
+ taxCode String @unique
+ address String?
+ phone String?
+ createdAt DateTime @default(now())
+ users User[]
+ dossiers Dossier[]
+}
+model User {
+ id Int @id @default(autoincrement())
+ fullName String
+ email String
+ passwordHash String
+ phone String?
+ department String?
+ role Role @default(STAFF)
+ active Boolean @default(true)
+ companyId Int
+ company Company @relation(fields:[companyId], references:[id])
+ createdAt DateTime @default(now())
+ createdDossiers Dossier[] @relation("Creator")
+ approvals Approval[]
+ steps ApprovalStep[]
+ activities ActivityLog[]
+ @@unique([companyId,email])
+}
+model Dossier {
+ id Int @id @default(autoincrement())
+ code String
+ title String
+ category String
+ description String? @db.Text
+ department String?
+ status DossierStatus @default(DRAFT)
+ dueDate DateTime?
+ companyId Int
+ company Company @relation(fields:[companyId], references:[id])
+ createdById Int
+ createdBy User @relation("Creator", fields:[createdById], references:[id])
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ approvals Approval[]
+ steps ApprovalStep[]
+ @@index([companyId,status])
+ @@unique([companyId,code])
+}
+model Approval {
+ id Int @id @default(autoincrement())
+ dossierId Int
+ dossier Dossier @relation(fields:[dossierId], references:[id])
+ approverId Int
+ approver User @relation(fields:[approverId], references:[id])
+ decision String
+ comment String? @db.Text
+ createdAt DateTime @default(now())
+}
+model ActivityLog {
+ id Int @id @default(autoincrement())
+ userId Int
+ user User @relation(fields:[userId], references:[id])
+ action String
+ detail String?
+ createdAt DateTime @default(now())
+}
+model ApprovalStep {
+ id Int @id @default(autoincrement())
+ dossierId Int
+ dossier Dossier @relation(fields:[dossierId], references:[id], onDelete: Cascade)
+ stepNo Int
+ title String
+ approverId Int
+ approver User @relation(fields:[approverId], references:[id])
+ status String @default("WAITING")
+ comment String? @db.Text
+ signature String?
+ signedAt DateTime?
+ @@index([dossierId,stepNo])
+ @@index([approverId,status])
+}

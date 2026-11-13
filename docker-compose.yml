@@ -1,0 +1,12 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: hoso360
+      MYSQL_USER: hoso
+      MYSQL_PASSWORD: hoso123
+    ports: ["3306:3306"]
+    volumes: [hoso_data:/var/lib/mysql]
+volumes:
+  hoso_data:

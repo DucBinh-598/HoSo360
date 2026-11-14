@@ -1,6 +1,9 @@
 node_modules/
 dist/
 .env
+uploads/
+backend/uploads/
+frontend/.env.local
 *.log
 .DS_Store
 .vscode/

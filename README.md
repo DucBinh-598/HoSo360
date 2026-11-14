@@ -72,3 +72,13 @@ Giới hạn tải lên: 10 MB/tệp. Chỉ phần mở rộng và MIME type đ�
 Đây là demo local, không phải cấu hình production. Tệp yêu cầu JWT và được kiểm tra tenant ở mọi thao tác; vai trò chỉ xem không thể tải lên hoặc tạo thư mục. Tên tệp gốc chỉ dùng hiển thị, tên lưu trên đĩa là UUID. Thư mục upload được loại khỏi Git.
 
 Chưa bao gồm OTP, xác thực email, chữ ký số thực, phân quyền theo từng hồ sơ/phòng ban, antivirus/quét nội dung, lưu trữ object storage, sao lưu/khôi phục hoặc hardening production. Trước khi triển khai thật cần bổ sung các biện pháp vận hành và bảo mật phù hợp.
+
+## Deploy frontend/backend tách rời
+
+Vercel chỉ host frontend; API NestJS cần được deploy riêng (ví dụ Render) và kết nối tới MySQL có thể truy cập từ backend đó.
+
+- Trên backend, đặt `DATABASE_URL`, `JWT_SECRET` và `FRONTEND_URL` trong cấu hình môi trường của host. `FRONTEND_URL` là domain Vercel đầy đủ, ví dụ `https://hoso360.vercel.app`; có thể phân tách nhiều origin bằng dấu phẩy.
+- Trên Vercel, đặt `VITE_API_URL` thành URL backend cộng `/api`, ví dụ `https://hoso360-api.onrender.com/api`, rồi deploy lại frontend.
+- Schema hiện chưa có migration baseline. Với database mới, đồng bộ một lần bằng `npm run db:push` từ backend; không dùng `prisma migrate reset`.
+- Upload hiện lưu trên ổ local. Trước khi dùng online lâu dài, cấu hình persistent disk hoặc object storage; không giả định ổ đĩa ephemeral của host giữ tệp sau redeploy.
+- Không chạy seed demo trên website công khai; tài khoản seed có thông tin đăng nhập mẫu.

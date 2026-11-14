@@ -20,6 +20,10 @@ import {
   ArrowLeft,
   Building2,
   ShieldCheck,
+  Download,
+  Upload,
+  FolderPlus,
+  RotateCw,
 } from 'lucide-react';
 import api from './api';
 const status = {
@@ -71,6 +75,7 @@ function App() {
           {[
             ['/', LayoutDashboard, 'Tổng quan'],
             ['/dossiers', FolderOpen, 'Hồ sơ'],
+            ['/files', FileText, 'Tài liệu'],
             ['/approvals', ClipboardCheck, 'Ký duyệt hồ sơ'],
             ['/users', Users, 'Tài khoản con'],
             ['/settings', Settings, 'Cài đặt & phân quyền'],
@@ -118,6 +123,7 @@ function App() {
             <Route path="/dossiers" element={<Dossiers />} />
             <Route path="/dossiers/new" element={<DossierForm />} />
             <Route path="/dossiers/:id" element={<Detail />} />
+            <Route path="/files" element={<FileManager />} />
             <Route path="/users" element={<UsersPage />} />
             <Route path="/approvals" element={<Approvals />} />
             <Route path="/settings" element={<SettingsPage />} />
@@ -700,6 +706,334 @@ function UsersPage() {
           </table>
         </div>
       </Card>
+    </>
+  );
+}
+function FileManager() {
+  const me = JSON.parse(localStorage.getItem('user') || '{}');
+  const [folderId, setFolderId] = useState(null),
+    [trail, setTrail] = useState([]),
+    [folders, setFolders] = useState([]),
+    [files, setFiles] = useState([]),
+    [dossiers, setDossiers] = useState([]),
+    [folderName, setFolderName] = useState(''),
+    [uploadFile, setUploadFile] = useState(null),
+    [dossierId, setDossierId] = useState(''),
+    [message, setMessage] = useState(''),
+    [historyFile, setHistoryFile] = useState(null),
+    [versions, setVersions] = useState([]),
+    [preview, setPreview] = useState(null);
+  const canWrite = ['ADMIN', 'MANAGER', 'STAFF'].includes(me.role);
+
+  async function load() {
+    try {
+      const params = folderId === null ? {} : { folderId };
+      const parentParams = folderId === null ? {} : { parentId: folderId };
+      const [folderResult, fileResult, dossierResult] = await Promise.all([
+        api.get('/folders', { params: parentParams }),
+        api.get('/files', { params }),
+        api.get('/dossiers'),
+      ]);
+      setFolders(folderResult.data);
+      setFiles(fileResult.data);
+      setDossiers(dossierResult.data);
+    } catch (e) {
+      setMessage(e.response?.data?.message || 'Không thể tải thư mục và tệp');
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, [folderId]);
+  useEffect(
+    () => () => {
+      if (preview?.url) URL.revokeObjectURL(preview.url);
+    },
+    [preview],
+  );
+
+  function enterFolder(folder) {
+    setTrail([...trail, folder]);
+    setFolderId(folder.id);
+    setHistoryFile(null);
+  }
+
+  function returnTo(index) {
+    const nextTrail = index < 0 ? [] : trail.slice(0, index + 1);
+    setTrail(nextTrail);
+    setFolderId(nextTrail.length ? nextTrail[nextTrail.length - 1].id : null);
+    setHistoryFile(null);
+  }
+
+  async function createFolder(e) {
+    e.preventDefault();
+    try {
+      await api.post('/folders', { name: folderName, parentId: folderId });
+      setFolderName('');
+      setMessage('Đã tạo thư mục');
+      await load();
+    } catch (e) {
+      setMessage(e.response?.data?.message || 'Không thể tạo thư mục');
+    }
+  }
+
+  async function upload(e) {
+    e.preventDefault();
+    if (!uploadFile) return setMessage('Vui lòng chọn tệp cần tải lên');
+    const data = new FormData();
+    data.append('file', uploadFile);
+    if (folderId !== null) data.append('folderId', String(folderId));
+    if (dossierId) data.append('dossierId', dossierId);
+    try {
+      await api.post('/files', data);
+      setUploadFile(null);
+      setDossierId('');
+      setMessage('Đã tải tệp lên');
+      await load();
+    } catch (e) {
+      setMessage(e.response?.data?.message || 'Không thể tải tệp lên');
+    }
+  }
+
+  async function showHistory(file) {
+    setHistoryFile(file);
+    setVersions([]);
+    try {
+      setVersions((await api.get(`/files/${file.id}/versions`)).data);
+    } catch (e) {
+      setMessage(e.response?.data?.message || 'Không thể tải lịch sử phiên bản');
+    }
+  }
+
+  async function addVersion(file, selected) {
+    if (!selected) return;
+    const data = new FormData();
+    data.append('file', selected);
+    try {
+      await api.post(`/files/${file.id}/versions`, data);
+      setMessage(`Đã tải phiên bản mới cho ${file.originalName}`);
+      await load();
+      if (historyFile?.id === file.id) await showHistory(file);
+    } catch (e) {
+      setMessage(e.response?.data?.message || 'Không thể tải phiên bản mới');
+    }
+  }
+
+  async function getFileContent(file, version, download) {
+    const extension = `.${file.originalName.split('.').pop()}`.toLowerCase();
+    const previewable = ['.pdf', '.png', '.jpg', '.jpeg', '.txt', '.csv'].includes(extension);
+    if (!download && !previewable) {
+      setPreview({ unsupported: true, name: file.originalName, file, version });
+      return;
+    }
+    try {
+      const response = await api.get(
+        `/files/${file.id}/${download ? 'download' : 'content'}`,
+        { params: version ? { version } : {}, responseType: 'blob' },
+      );
+      const url = URL.createObjectURL(response.data);
+      if (download) {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = file.originalName;
+        link.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } else {
+        setPreview({ url, name: file.originalName, unsupported: false });
+      }
+    } catch (e) {
+      setMessage(e.response?.data?.message || 'Không thể đọc nội dung tệp');
+    }
+  }
+
+  const sizeLabel = (size) =>
+    size < 1024 * 1024
+      ? `${Math.max(1, Math.round(size / 1024))} KB`
+      : `${(size / 1024 / 1024).toFixed(1)} MB`;
+
+  return (
+    <>
+      <Title title="Tài liệu" desc="Quản lý thư mục, tệp đính kèm và các phiên bản." />
+      {message && (
+        <div className="mb-4 flex items-center justify-between rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-700">
+          {message}
+          <button onClick={() => setMessage('')} aria-label="Đóng">×</button>
+        </div>
+      )}
+      <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+        <button className="font-semibold text-blue-700" onClick={() => returnTo(-1)}>
+          Tài liệu của doanh nghiệp
+        </button>
+        {trail.map((folder, index) => (
+          <React.Fragment key={folder.id}>
+            <span className="text-slate-400">/</span>
+            <button className="text-blue-700" onClick={() => returnTo(index)}>
+              {folder.name}
+            </button>
+          </React.Fragment>
+        ))}
+      </div>
+      {canWrite && (
+        <div className="mb-5 grid gap-4 xl:grid-cols-2">
+          <Card>
+            <h2 className="mb-3 font-bold">Tạo thư mục</h2>
+            <form onSubmit={createFolder} className="flex flex-wrap gap-2">
+              <input
+                value={folderName}
+                onChange={(e) => setFolderName(e.target.value)}
+                maxLength={100}
+                required
+                placeholder="Tên thư mục mới"
+                className="min-w-[220px] flex-1 rounded-lg border px-3 py-2 text-sm"
+              />
+              <Btn type="submit"><FolderPlus size={16} /> Tạo thư mục</Btn>
+            </form>
+          </Card>
+          <Card>
+            <h2 className="mb-3 font-bold">Tải tệp lên</h2>
+            <form onSubmit={upload} className="space-y-3">
+              <input
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,.txt,.csv"
+                onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                className="block w-full text-sm"
+              />
+              <div className="flex flex-wrap gap-2">
+                <select
+                  value={dossierId}
+                  onChange={(e) => setDossierId(e.target.value)}
+                  className="min-w-[220px] flex-1 rounded-lg border px-3 py-2 text-sm"
+                >
+                  <option value="">Không gắn với hồ sơ</option>
+                  {dossiers.map((dossier) => (
+                    <option key={dossier.id} value={dossier.id}>
+                      {dossier.code} · {dossier.title}
+                    </option>
+                  ))}
+                </select>
+                <Btn type="submit"><Upload size={16} /> Tải lên</Btn>
+              </div>
+              <p className="text-xs text-slate-500">PDF, ảnh, Word, Excel, TXT hoặc CSV; tối đa 10 MB.</p>
+            </form>
+          </Card>
+        </div>
+      )}
+      <Card>
+        <h2 className="mb-4 font-bold">Thư mục và tệp</h2>
+        {folders.length > 0 && (
+          <div className="mb-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {folders.map((folder) => (
+              <button
+                key={folder.id}
+                onClick={() => enterFolder(folder)}
+                className="flex items-center gap-3 rounded-lg border p-3 text-left hover:bg-slate-50"
+              >
+                <FolderOpen className="text-blue-600" size={19} />
+                <span className="font-medium">{folder.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {files.length ? (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[700px] text-left text-sm">
+              <thead className="text-xs text-slate-400">
+                <tr>
+                  {['Tên tệp', 'Hồ sơ', 'Kích thước', 'Phiên bản', 'Thao tác'].map((label) => (
+                    <th className="border-b px-3 py-3" key={label}>{label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {files.map((file) => (
+                  <tr key={file.id}>
+                    <td className="px-3 py-3">
+                      <div className="font-medium">{file.originalName}</div>
+                      <div className="text-xs text-slate-500">Tải bởi {file.createdBy.fullName}</div>
+                    </td>
+                    <td className="px-3 py-3">{file.dossier?.code || '—'}</td>
+                    <td className="px-3 py-3">{sizeLabel(file.sizeBytes)}</td>
+                    <td className="px-3 py-3">v{file.currentVersion} · {file._count.versions} phiên bản</td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-wrap gap-3">
+                        <button className="text-blue-700" onClick={() => getFileContent(file, null, false)}>
+                          Xem
+                        </button>
+                        <button className="flex items-center gap-1 text-blue-700" onClick={() => getFileContent(file, null, true)}>
+                          <Download size={14} /> Tải
+                        </button>
+                        <button className="text-blue-700" onClick={() => showHistory(file)}>Lịch sử</button>
+                        {canWrite && (
+                          <label className="flex cursor-pointer items-center gap-1 text-blue-700">
+                            <RotateCw size={14} /> Phiên bản mới
+                            <input
+                              type="file"
+                              accept={`.${file.originalName.split('.').pop()}`}
+                              className="hidden"
+                              onChange={(e) => {
+                                addVersion(file, e.target.files?.[0]);
+                                e.target.value = '';
+                              }}
+                            />
+                          </label>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : !folders.length ? (
+          <p className="py-8 text-center text-sm text-slate-400">Chưa có thư mục hoặc tệp.</p>
+        ) : null}
+      </Card>
+      {historyFile && (
+        <Card>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="font-bold">Lịch sử phiên bản · {historyFile.originalName}</h2>
+            <button className="text-sm text-slate-500" onClick={() => setHistoryFile(null)}>Đóng</button>
+          </div>
+          <div className="divide-y">
+            {versions.map((version) => (
+              <div key={version.id} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm">
+                <div>
+                  <b>Phiên bản {version.version}</b> · {sizeLabel(version.sizeBytes)}
+                  <div className="text-xs text-slate-500">
+                    {version.createdBy.fullName} · {new Date(version.createdAt).toLocaleString('vi-VN')}
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <button className="text-blue-700" onClick={() => getFileContent(historyFile, version.version, false)}>Xem</button>
+                  <button className="text-blue-700" onClick={() => getFileContent(historyFile, version.version, true)}>Tải xuống</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+      {preview && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/70 p-4">
+          <div className="flex h-[90vh] w-full max-w-5xl flex-col rounded-xl bg-white p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <b className="truncate">{preview.name}</b>
+              <button className="px-3 py-1 text-sm text-slate-600" onClick={() => setPreview(null)}>Đóng</button>
+            </div>
+            {preview.unsupported ? (
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded border bg-slate-50 p-6 text-center">
+                <p className="text-sm text-slate-600">
+                  Chưa hỗ trợ xem trước tệp Office trong demo local. Tải tệp xuống để mở bằng ứng dụng phù hợp.
+                </p>
+                <Btn onClick={() => getFileContent(preview.file, preview.version, true)}>
+                  <Download size={16} /> Tải tệp xuống
+                </Btn>
+              </div>
+            ) : (
+              <iframe title={preview.name} src={preview.url} className="min-h-0 flex-1 rounded border" />
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 }

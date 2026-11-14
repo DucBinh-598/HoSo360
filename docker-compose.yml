@@ -8,5 +8,10 @@ services:
       MYSQL_PASSWORD: hoso123
     ports: ["3306:3306"]
     volumes: [hoso_data:/var/lib/mysql]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 volumes:
   hoso_data:

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from './prisma.service';
+import { DossierStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 @Injectable()
 export class ApiService {
@@ -95,10 +96,13 @@ export class ApiService {
     return { total, pending, approved, rejected, users, recent };
   }
   async dossiers(u: any, q = '', status = '') {
+    if (status && !Object.values(DossierStatus).includes(status as DossierStatus)) {
+      throw new BadRequestException('Trạng thái hồ sơ không hợp lệ');
+    }
     return this.db.dossier.findMany({
       where: {
         companyId: u.companyId,
-        ...(status ? { status } : {}),
+        ...(status ? { status: status as DossierStatus } : {}),
         ...(q ? { OR: [{ title: { contains: q } }, { code: { contains: q } }] } : {}),
       },
       include: { createdBy: { select: { fullName: true } } },

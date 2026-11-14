@@ -1,86 +1,174 @@
-generator client { provider = "prisma-client-js" }
-datasource db { provider = "mysql" url = env("DATABASE_URL") }
-enum Role { ADMIN MANAGER STAFF VIEWER }
-enum DossierStatus { DRAFT PENDING APPROVED REJECTED ARCHIVED }
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  STAFF
+  VIEWER
+}
+
+enum DossierStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  ARCHIVED
+}
+
 model Company {
- id Int @id @default(autoincrement())
- name String
- slug String @unique
- taxCode String @unique
- address String?
- phone String?
- createdAt DateTime @default(now())
- users User[]
- dossiers Dossier[]
+  id        Int              @id @default(autoincrement())
+  name      String
+  slug      String           @unique
+  taxCode   String           @unique
+  address   String?
+  phone     String?
+  createdAt DateTime         @default(now())
+  users     User[]
+  dossiers  Dossier[]
+  folders   DocumentFolder[]
+  files     StoredFile[]
 }
+
 model User {
- id Int @id @default(autoincrement())
- fullName String
- email String
- passwordHash String
- phone String?
- department String?
- role Role @default(STAFF)
- active Boolean @default(true)
- companyId Int
- company Company @relation(fields:[companyId], references:[id])
- createdAt DateTime @default(now())
- createdDossiers Dossier[] @relation("Creator")
- approvals Approval[]
- steps ApprovalStep[]
- activities ActivityLog[]
- @@unique([companyId,email])
+  id              Int              @id @default(autoincrement())
+  fullName        String
+  email           String
+  passwordHash    String
+  phone           String?
+  department      String?
+  role            Role             @default(STAFF)
+  active          Boolean          @default(true)
+  companyId       Int
+  company         Company          @relation(fields: [companyId], references: [id])
+  createdAt       DateTime         @default(now())
+  createdDossiers Dossier[]        @relation("Creator")
+  approvals       Approval[]
+  steps           ApprovalStep[]
+  activities      ActivityLog[]
+  createdFolders  DocumentFolder[] @relation("FolderCreator")
+  uploadedFiles   StoredFile[]     @relation("FileCreator")
+  fileVersions    FileVersion[]    @relation("FileVersionCreator")
+
+  @@unique([companyId, email])
 }
+
 model Dossier {
- id Int @id @default(autoincrement())
- code String
- title String
- category String
- description String? @db.Text
- department String?
- status DossierStatus @default(DRAFT)
- dueDate DateTime?
- companyId Int
- company Company @relation(fields:[companyId], references:[id])
- createdById Int
- createdBy User @relation("Creator", fields:[createdById], references:[id])
- createdAt DateTime @default(now())
- updatedAt DateTime @updatedAt
- approvals Approval[]
- steps ApprovalStep[]
- @@index([companyId,status])
- @@unique([companyId,code])
+  id          Int            @id @default(autoincrement())
+  code        String
+  title       String
+  category    String
+  description String?        @db.Text
+  department  String?
+  status      DossierStatus  @default(DRAFT)
+  dueDate     DateTime?
+  companyId   Int
+  company     Company        @relation(fields: [companyId], references: [id])
+  createdById Int
+  createdBy   User           @relation("Creator", fields: [createdById], references: [id])
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  approvals   Approval[]
+  steps       ApprovalStep[]
+  files       StoredFile[]
+
+  @@unique([companyId, code])
+  @@index([companyId, status])
 }
+
 model Approval {
- id Int @id @default(autoincrement())
- dossierId Int
- dossier Dossier @relation(fields:[dossierId], references:[id])
- approverId Int
- approver User @relation(fields:[approverId], references:[id])
- decision String
- comment String? @db.Text
- createdAt DateTime @default(now())
+  id         Int      @id @default(autoincrement())
+  dossierId  Int
+  dossier    Dossier  @relation(fields: [dossierId], references: [id])
+  approverId Int
+  approver   User     @relation(fields: [approverId], references: [id])
+  decision   String
+  comment    String?  @db.Text
+  createdAt  DateTime @default(now())
 }
+
 model ActivityLog {
- id Int @id @default(autoincrement())
- userId Int
- user User @relation(fields:[userId], references:[id])
- action String
- detail String?
- createdAt DateTime @default(now())
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  action    String
+  detail    String?
+  createdAt DateTime @default(now())
 }
+
 model ApprovalStep {
- id Int @id @default(autoincrement())
- dossierId Int
- dossier Dossier @relation(fields:[dossierId], references:[id], onDelete: Cascade)
- stepNo Int
- title String
- approverId Int
- approver User @relation(fields:[approverId], references:[id])
- status String @default("WAITING")
- comment String? @db.Text
- signature String?
- signedAt DateTime?
- @@index([dossierId,stepNo])
- @@index([approverId,status])
+  id         Int       @id @default(autoincrement())
+  dossierId  Int
+  dossier    Dossier   @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  stepNo     Int
+  title      String
+  approverId Int
+  approver   User      @relation(fields: [approverId], references: [id])
+  status     String    @default("WAITING")
+  comment    String?   @db.Text
+  signature  String?
+  signedAt   DateTime?
+
+  @@index([dossierId, stepNo])
+  @@index([approverId, status])
+}
+
+model DocumentFolder {
+  id          Int              @id @default(autoincrement())
+  name        String
+  companyId   Int
+  company     Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parentId    Int?
+  parent      DocumentFolder?  @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    DocumentFolder[] @relation("FolderTree")
+  createdById Int
+  createdBy   User             @relation("FolderCreator", fields: [createdById], references: [id])
+  createdAt   DateTime         @default(now())
+  files       StoredFile[]
+
+  @@index([companyId, parentId])
+}
+
+model StoredFile {
+  id             Int             @id @default(autoincrement())
+  originalName   String
+  mimeType       String
+  sizeBytes      Int
+  currentVersion Int             @default(1)
+  companyId      Int
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  folderId       Int?
+  folder         DocumentFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  dossierId      Int?
+  dossier        Dossier?        @relation(fields: [dossierId], references: [id], onDelete: SetNull)
+  createdById    Int
+  createdBy      User            @relation("FileCreator", fields: [createdById], references: [id])
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  versions       FileVersion[]
+
+  @@index([companyId, folderId, updatedAt])
+  @@index([companyId, dossierId])
+}
+
+model FileVersion {
+  id          Int        @id @default(autoincrement())
+  fileId      Int
+  file        StoredFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  version     Int
+  storageKey  String     @unique
+  mimeType    String
+  sizeBytes   Int
+  createdById Int
+  createdBy   User       @relation("FileVersionCreator", fields: [createdById], references: [id])
+  createdAt   DateTime   @default(now())
+
+  @@unique([fileId, version])
+  @@index([fileId, createdAt])
 }
